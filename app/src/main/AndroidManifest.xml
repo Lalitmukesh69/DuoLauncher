@@ -10,6 +10,12 @@
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />
         </intent>
+        <intent>
+            <action android:name="android.intent.action.SET_WALLPAPER" />
+        </intent>
+        <intent>
+            <action android:name="android.service.wallpaper.WallpaperService" />
+        </intent>
     </queries>
     <application android:label="Duo Launcher" android:icon="@drawable/ic_launcher"
         android:name=".DuoApplication"

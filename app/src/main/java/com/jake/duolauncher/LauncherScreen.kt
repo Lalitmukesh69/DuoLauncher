@@ -124,6 +124,7 @@ fun LauncherScreen(
     state: LauncherState, model: LauncherModel, widgets: WidgetController, homeRequests: Int,
     onLaunch: (AppEntry) -> Unit, onMakeDefault: () -> Unit, onAppInfo: (AppEntry) -> Unit,
     isDefaultHome: Boolean, deviceStatus: DeviceStatus, onStatusMode: (Boolean) -> Unit, onWallpaperPreview: () -> Unit,
+    onDuneWallpaperPreview: () -> Unit = onWallpaperPreview,
     onDiscover: () -> Unit = {}, searchRequests: Int = 0,
     onLaunchFrom: (AppEntry, android.graphics.Rect?) -> Unit = { app, _ -> onLaunch(app) },
     onGoogleSearch: (android.graphics.Rect?) -> Boolean = { false },
@@ -246,6 +247,23 @@ fun LauncherScreen(
         val callback = { scope.launch { pager.animateScrollToPage(0) }; Unit }
         LiveDiscover.onHomeRequest = callback
         onDispose { if (LiveDiscover.onHomeRequest === callback) LiveDiscover.onHomeRequest = null }
+    }
+    val view = androidx.compose.ui.platform.LocalView.current
+    val wallpaperManager = remember(view) { runCatching { android.app.WallpaperManager.getInstance(view.context) }.getOrNull() }
+    LaunchedEffect(nativePager, homePages) {
+        val totalPages = (homePages - 1).coerceAtLeast(1)
+        snapshotFlow {
+            val offset = (nativePager.currentPage + nativePager.currentPageOffsetFraction).coerceIn(0f, totalPages.toFloat())
+            offset / totalPages
+        }.distinctUntilChanged().collect { offset ->
+            val token = view.windowToken
+            if (token != null && wallpaperManager?.isWallpaperSupported == true) {
+                runCatching {
+                    wallpaperManager.setWallpaperOffsets(token, offset, 0f)
+                    wallpaperManager.setWallpaperOffsetSteps(1f / totalPages, 1f)
+                }
+            }
+        }
     }
     var previousHomePages by remember { mutableIntStateOf(homePages) }
     var previousEditRevision by remember { mutableIntStateOf(state.editRevision) }
@@ -413,7 +431,7 @@ fun LauncherScreen(
             }
         },
         onFinish = { cancelled -> finishDrag(cancelled) })) {
-        DuneWallpaper()
+        DuneWallpaper(showDunesFallback = false)
         BoxWithConstraints(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
             val wide = maxWidth.value >= 650f
             val preset = if (wide) state.expanded else state.compact
@@ -670,7 +688,9 @@ fun LauncherScreen(
                             onAppearanceClear = onAppearanceClear,
                             onShadeSetup = { sheet = ""; onShadeSetup() },
                             backgrounds = launcherActivity.backgrounds,
-                            onWallpaperPreview = { sheet = ""; onWallpaperPreview() }, homePage = pager.currentPage.coerceIn(0, homePages - 1))
+                            onWallpaperPreview = { sheet = ""; onWallpaperPreview() },
+                            onDuneWallpaperPreview = { sheet = ""; onDuneWallpaperPreview() },
+                            homePage = pager.currentPage.coerceIn(0, homePages - 1))
                         "widgetActions" -> model.placement(widgetSlot)?.let { placement ->
                             val topPitch = (geometry.widgetHeight + 18f) / 2f
                             val gridSizing = WidgetGridSizing(GRID_COLUMNS, GRID_ROWS, geometry.gridWidth / GRID_COLUMNS,
@@ -1897,15 +1917,15 @@ private fun SettingsPanel(state: LauncherState, initiallyWide: Boolean, model: L
         TextButton(onClick = { model.setPreset(wide, LayoutPreset()) }) { Text("Reset this layout") }
         HorizontalDivider(Modifier.padding(vertical = 12.dp))
         TextButton(onClick = onWallpaperPreview, modifier = Modifier.fillMaxWidth().testTag("wallpaper-preview")) {
-            Icon(Icons.Rounded.Wallpaper, null, Modifier.size(20.dp)); Spacer(Modifier.width(8.dp)); Text("Apply matching wallpaper")
+            Icon(Icons.Rounded.Wallpaper, null, Modifier.size(20.dp)); Spacer(Modifier.width(8.dp)); Text("Choose wallpaper")
         }
-        Text("Preview the current launcher background in Android’s wallpaper picker, then choose where to apply it.", style = MaterialTheme.typography.bodySmall,
+        Text("Choose wallpapers from Android, Google Wallpapers, or third-party wallpaper apps.", style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant)
         Text("Launcher background", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 12.dp))
         Button(onClick = backgrounds::choosePhoto, enabled = !backgrounds.loading,
             modifier = Modifier.fillMaxWidth().testTag("background-choose")) { Text("Choose background photo") }
         if (backgrounds.photoSelected) OutlinedButton(onClick = backgrounds::reset,
-            modifier = Modifier.fillMaxWidth().testTag("background-reset")) { Text("Reset to Duo dunes") }
+            modifier = Modifier.fillMaxWidth().testTag("background-reset")) { Text("Reset to system wallpaper") }
         if (backgrounds.loading) LinearProgressIndicator(Modifier.fillMaxWidth().testTag("background-loading"))
         (backgrounds.errorMessage ?: backgrounds.successMessage)?.let { message ->
             TextButton(onClick = backgrounds::clearMessage, Modifier.fillMaxWidth().testTag("background-message")) { Text(message) }
