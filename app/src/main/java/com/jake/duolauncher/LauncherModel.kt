@@ -22,6 +22,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
 import java.text.Collator
 
 data class AppEntry(
@@ -37,6 +39,7 @@ data class AppEntry(
     val available: Boolean = true,
 ) {
     val packageName: String get() = component.packageName
+    val imageBitmap: ImageBitmap = icon.asImageBitmap()
 }
 
 data class LauncherState(
@@ -73,6 +76,7 @@ class LauncherModel(application: Application) : AndroidViewModel(application) {
     private val launcherApps = application.getSystemService(LauncherApps::class.java)
     private val userManager = application.getSystemService(UserManager::class.java)
     private val appCatalogPrefs = application.getSharedPreferences("app_catalog", 0)
+    val iconPreferences = IconPreferences(application)
     private val legacyRaw = prefs.getString("state", null)
     private val sourceSchema = runCatching { JSONObject(legacyRaw ?: "{}").optInt("schema", 1) }.getOrDefault(1)
     private var needsMigration = sourceSchema < 2
@@ -124,11 +128,14 @@ class LauncherModel(application: Application) : AndroidViewModel(application) {
         val temporarilyUnavailable = unavailablePackages.toSet()
         invalidatedPackages.clear()
         removedPackages.clear()
+        val iconPrefs = iconPreferences.state.value
+        val activeShape = iconPrefs.iconShape
         val resources = getApplication<Application>().resources
-        val configuration = resources.configuration.let { "${it.densityDpi}|${it.locales.toLanguageTags()}|${it.uiMode}" }
+        val configuration = resources.configuration.let { "${it.densityDpi}|${it.locales.toLanguageTags()}|${it.uiMode}|${iconPrefs.iconPackPackage}|${activeShape.name}" }
         viewModelScope.launch {
             try {
                 val apps = withContext(Dispatchers.IO) {
+                    val activePack = IconPackManager.loadIconPack(getApplication<Application>(), iconPrefs.iconPackPackage)
                     if (configuration != iconConfiguration) { iconCache.clear(); iconConfiguration = configuration }
                     iconCache.keys.removeAll { key -> parseProfileAppId(key)?.let { identity ->
                         val serial = identity.userSerial ?: userManager.getSerialNumberForUser(Process.myUserHandle())
@@ -153,7 +160,7 @@ class LauncherModel(application: Application) : AndroidViewModel(application) {
                         AppProfile(serial, if (isPersonal) "Personal" else "Work", isPersonal, !isPersonal,
                             quiet, unlocked, !quiet && unlocked)
                     }
-                    val cachedBeforeProfiles = loadCachedApps().filterNot { entry -> entry.userSerial to entry.packageName in removed }
+                    val cachedBeforeProfiles = loadCachedApps(activePack, activeShape).filterNot { entry -> entry.userSerial to entry.packageName in removed }
                     val removedProfileSerials = removedAssociatedProfileSerials(
                         cachedBeforeProfiles.filter(AppEntry::isWork).mapTo(mutableSetOf(), AppEntry::userSerial), associatedSerials)
                     val cached = cachedBeforeProfiles.filterNot { it.isWork && it.userSerial in removedProfileSerials }
@@ -169,8 +176,21 @@ class LauncherModel(application: Application) : AndroidViewModel(application) {
                             val id = profileAppId(component.flattenToString(), serial, personalSerial)
                             val label = info.label.toString()
                             iconCache[id]?.takeIf { it.label == label && it.available } ?: run {
-                                val icon = runCatching { info.getBadgedIcon(0) }.getOrElse { application.packageManager.defaultActivityIcon }
-                                AppEntry(id, label, launcherIcon(icon), component, profile, serial, descriptor.label,
+                                val packIcon = activePack?.getIcon(component)
+                                val iconBitmap = if (packIcon != null) {
+                                    val shaped = Bitmap.createBitmap(144, 144, Bitmap.Config.ARGB_8888)
+                                    val canvas = Canvas(shaped)
+                                    canvas.clipPath(activeShape.maskPath(144f, 144f))
+                                    canvas.drawBitmap(packIcon, 0f, 0f, null)
+                                    shaped
+                                } else if (activePack != null) {
+                                    val base = runCatching { info.getBadgedIcon(0) }.getOrElse { application.packageManager.defaultActivityIcon }
+                                    activePack.composeFallback(base, activeShape)
+                                } else {
+                                    val base = runCatching { info.getBadgedIcon(0) }.getOrElse { application.packageManager.defaultActivityIcon }
+                                    launcherIcon(base, activeShape)
+                                }
+                                AppEntry(id, label, iconBitmap, component, profile, serial, descriptor.label,
                                     descriptor.isWork, available = true).also { iconCache[id] = it }
                             }
                         }
@@ -231,7 +251,7 @@ class LauncherModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private fun loadCachedApps(): List<AppEntry> = runCatching {
+    private fun loadCachedApps(activePack: LoadedIconPack?, activeShape: IconShape): List<AppEntry> = runCatching {
         val application = getApplication<Application>()
         val personal = Process.myUserHandle()
         val array = JSONArray(appCatalogPrefs.getString("apps", "[]"))
@@ -245,7 +265,12 @@ class LauncherModel(application: Application) : AndroidViewModel(application) {
             val isWork = item.optBoolean("work", identity.userSerial != null)
             val baseIcon = application.packageManager.defaultActivityIcon
             val icon = runCatching { application.packageManager.getUserBadgedIcon(baseIcon, user) }.getOrDefault(baseIcon)
-            AppEntry(id, item.getString("label"), launcherIcon(icon), component, user, serial,
+            val iconBitmap = if (activePack != null) {
+                activePack.composeFallback(icon, activeShape)
+            } else {
+                launcherIcon(icon, activeShape)
+            }
+            AppEntry(id, item.getString("label"), iconBitmap, component, user, serial,
                 item.optString("profile", if (isWork) "Work" else "Personal"), isWork, available = false)
         }
     }.getOrDefault(emptyList())
@@ -623,17 +648,37 @@ class LauncherModel(application: Application) : AndroidViewModel(application) {
         LauncherState(loading = false, error = "Saved Home layout could not be read; it was left unchanged.")
     }
 
+    fun setIconPack(packageName: String?) {
+        iconPreferences.setIconPack(packageName)
+        viewModelScope.launch(Dispatchers.IO) {
+            iconCache.clear()
+            refresh()
+        }
+    }
+
+    fun setIconShape(shape: IconShape) {
+        iconPreferences.setIconShape(shape)
+        viewModelScope.launch(Dispatchers.IO) {
+            iconCache.clear()
+            refresh()
+        }
+    }
+
     override fun onCleared() { launcherApps.unregisterCallback(callback) }
 }
 
-/** Render adaptive layers through our rounded-square mask, preserving original app artwork. */
-private fun launcherIcon(drawable: Drawable): Bitmap {
-    if (drawable !is AdaptiveIconDrawable) return drawable.toBitmap(144, 144)
+/** Render adaptive and unthemed layers through the configured icon shape mask. */
+private fun launcherIcon(drawable: Drawable, shape: IconShape = IconShape.ROUNDED_SQUARE): Bitmap {
     val bitmap = Bitmap.createBitmap(144, 144, Bitmap.Config.ARGB_8888)
     val canvas = Canvas(bitmap)
-    canvas.clipPath(Path().apply { addRoundRect(0f, 0f, 144f, 144f, 34f, 34f, Path.Direction.CW) })
-    drawable.setBounds(0, 0, 144, 144)
-    drawable.background?.draw(canvas)
-    drawable.foreground?.draw(canvas)
+    canvas.clipPath(shape.maskPath(144f, 144f))
+    if (drawable is AdaptiveIconDrawable) {
+        drawable.setBounds(0, 0, 144, 144)
+        drawable.background?.draw(canvas)
+        drawable.foreground?.draw(canvas)
+    } else {
+        val raw = drawable.toBitmap(144, 144)
+        canvas.drawBitmap(raw, 0f, 0f, null)
+    }
     return bitmap
 }

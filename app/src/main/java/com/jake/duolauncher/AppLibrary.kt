@@ -121,7 +121,7 @@ internal fun AppLibrary(
                             .then(if (drag == null) Modifier.combinedClickable(onClick = click, onLongClick = { onActions(app) })
                                 else Modifier.clickable(onClick = click).semantics { onLongClick("App options") { onActions(app); true } })
                             .padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Image(app.icon.asImageBitmap(), null, Modifier.size(40.dp)
+                            Image(app.imageBitmap, null, Modifier.size(40.dp)
                                 .onGloballyPositioned { launchBounds.set(it.boundsInWindow().toAndroidBounds()) }.clip(RoundedCornerShape(10.dp)))
                             Text(app.label, Modifier.weight(1f).padding(start = 12.dp), maxLines = 2, fontSize = 14.sp)
                             if (editing) IconButton(onClick = { onPin(app.id, !isPinned) }, Modifier.testTag("pin-${app.id}")) {
