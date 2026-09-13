@@ -256,7 +256,7 @@ class DiscoverFeedActivity : DiscoverPageActivity() {
                 }
                 val progress = DiscoverMotion.progress.floatValue
                 Box(Modifier.fillMaxSize()) {
-                    if (!DiscoverBounds.available) DuneWallpaper()
+                    if (!DiscoverBounds.available) DuneWallpaper(showDunesFallback = false)
                     Surface(if (DiscoverBounds.available) Modifier.fillMaxSize()
                         else Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).padding(12.dp),
                         shape = RoundedCornerShape(if (DiscoverBounds.available) 16.dp else 26.dp),

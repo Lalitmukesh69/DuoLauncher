@@ -72,6 +72,7 @@ class MainActivity : ComponentActivity() {
         returningFromShadeSettings = savedInstanceState?.getBoolean(SHADE_SETTINGS_PENDING) == true
         val restoreShadeDialog = savedInstanceState?.getBoolean(SHADE_DIALOG_VISIBLE) == true
         appearance = AppearanceStore(this)
+        window.addFlags(android.view.WindowManager.LayoutParams.FLAG_SHOW_WALLPAPER)
         enableEdgeToEdge(statusBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
             navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT))
         widgets = WidgetController(this, model) { active ->
@@ -93,7 +94,9 @@ class MainActivity : ComponentActivity() {
             DuoTheme(appearance.state.dark) {
                 LauncherScreen(state, model, widgets, homeRequests.intValue,
                     onLaunch = { launchApp(it) }, onMakeDefault = ::makeDefault, onAppInfo = ::appInfo,
-                    isDefaultHome = defaultHome.value, deviceStatus = deviceStatus, onStatusMode = ::setStatusMode, onWallpaperPreview = ::previewWallpaper,
+                    isDefaultHome = defaultHome.value, deviceStatus = deviceStatus, onStatusMode = ::setStatusMode,
+                    onWallpaperPreview = ::previewWallpaper,
+                    onDuneWallpaperPreview = ::previewDuneWallpaper,
                     onDiscover = ::openDiscover, searchRequests = searchRequests.intValue,
                     onLaunchFrom = ::launchApp, onGoogleSearch = ::openGoogleSearch,
                     appearance = appearance.state,
@@ -366,11 +369,29 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun previewWallpaper() {
+        openWallpaperPicker()
+    }
+
+    private fun openWallpaperPicker() {
+        val pickerIntent = Intent(Intent.ACTION_SET_WALLPAPER)
+        val chooser = Intent.createChooser(pickerIntent, "Choose wallpaper")
+        try {
+            startActivity(chooser)
+        } catch (_: Exception) {
+            try {
+                startActivity(Intent(WallpaperManager.ACTION_LIVE_WALLPAPER_CHOOSER))
+            } catch (_: Exception) {
+                previewDuneWallpaper()
+            }
+        }
+    }
+
+    private fun previewDuneWallpaper() {
         try {
             startActivity(Intent(WallpaperManager.ACTION_CHANGE_LIVE_WALLPAPER)
                 .putExtra(WallpaperManager.EXTRA_LIVE_WALLPAPER_COMPONENT, ComponentName(this, DuneWallpaperService::class.java)))
-        } catch (_: android.content.ActivityNotFoundException) {
-            Toast.makeText(this, "The system wallpaper preview is unavailable.", Toast.LENGTH_LONG).show()
+        } catch (_: Exception) {
+            Toast.makeText(this, "The wallpaper preview is unavailable.", Toast.LENGTH_LONG).show()
         }
     }
 
