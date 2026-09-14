@@ -1,4 +1,4 @@
-# Duo Launcher
+# Duo Launcher (Lalit edition) 
 
 A native Android launcher built around a right-side dock and a home screen that makes room when you unfold your phone.
 
