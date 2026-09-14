@@ -63,7 +63,9 @@ import kotlin.math.roundToInt
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -314,6 +316,9 @@ fun LauncherScreen(
     } else if (selectedId != null) selectedId = null else { focus.clearFocus(); scope.launch { pager.animateScrollToPage(0) } } }
     val openDiscover = { if (firstHome > 0) scope.launch { pager.animateScrollToPage(-1) } else onDiscover(); Unit }
     val openLibrary = { scope.launch { pager.animateScrollToPage(homePages) }; Unit }
+    val iconPrefs by model.iconPreferences.state.collectAsStateWithLifecycle()
+    val iconShape = iconPrefs.iconShape
+    val composeShape = remember(iconShape) { iconShape.composeShape() }
 
     val dragWindowPage = if (expandedWorkspace && (drag.active || widgetSession != null)) pager.settledPage else pager.currentPage
     val eligibleDragPages = remember(expandedWorkspace, dragWindowPage, visibleHomePages) {
@@ -553,6 +558,7 @@ fun LauncherScreen(
                         onFolder = { openFolderId = it },
                         onEmptyWidget = { emptyCellIndex = it },
                         onRefresh = model::refresh,
+                        iconShape = composeShape,
                     )
                 }
             } else {
@@ -575,6 +581,7 @@ fun LauncherScreen(
                         Row(Modifier.fillMaxSize().testTag("home-surface")) {
                             HomePagePane(page, state, previewLayout.slots, previewLayout.leadingSlots, previewLayout.widgetPlacements, appsById, geometry, contentHeight,
                                 bottomSpace, widgets, drag, target, insertionTarget, showLargeWidget = false,
+                                iconShape = composeShape,
                                 onLaunch = onLaunchFrom, onActions = { selectedId = it.id },
                                 onWidget = { widgetSlot = it; sheet = "widgetActions" },
                                 onFolder = { openFolderId = it },
@@ -602,6 +609,7 @@ fun LauncherScreen(
                 Column(Modifier.padding(vertical = 8.dp).verticalScroll(dockScroll)) {
                     DockAppColumn(state.dock, previewLayout.dock, appsById, geometry.dockRowHeight,
                         dockIconSize(geometry.iconSize), drag, insertionTarget,
+                        iconShape = composeShape,
                         onLaunch = onLaunchFrom, onChoose = { dockSlot = it; sheet = "dock" })
                 }
             }
@@ -994,9 +1002,9 @@ fun LauncherScreen(
             appsById[drag.source?.appId]?.let { app ->
                 val size = 66.dp
                 val px = with(LocalDensity.current) { size.toPx() }
-                Image(app.icon.asImageBitmap(), "Moving ${app.label}", Modifier
+                Image(app.imageBitmap, "Moving ${app.label}", Modifier
                     .offset { IntOffset((drag.pointer.x - drag.rootOrigin.x - px / 2).roundToInt(), (drag.pointer.y - drag.rootOrigin.y - px * .65f).roundToInt()) }
-                    .size(size).shadow(16.dp, RoundedCornerShape(16.dp)).clip(RoundedCornerShape(16.dp)).testTag("drag-ghost"))
+                    .size(size).shadow(16.dp, composeShape).clip(composeShape).testTag("drag-ghost"))
             }
             drag.source?.appId?.let { state.layout.folder(it) }?.let { folder ->
                 Surface(Modifier.offset { IntOffset((drag.pointer.x - drag.rootOrigin.x - 42.dp.toPx()).roundToInt(),
@@ -1243,6 +1251,7 @@ private fun ExpandedWorkspace(
     onFolder: (String) -> Unit,
     onEmptyWidget: (Int) -> Unit,
     onRefresh: () -> Unit,
+    iconShape: Shape = RoundedCornerShape(14.dp),
 ) {
     val density = LocalDensity.current
     val viewportWidth = motion.pageWidth
@@ -1310,6 +1319,7 @@ private fun ExpandedWorkspace(
                     HomePagePane(
                         -1, state, previewSlots, previewLeadingSlots, previewWidgetPlacements, appsById, geometry, contentHeight, bottomSpace,
                         widgets, drag, target, insertionTarget, showLargeWidget = true,
+                        iconShape = iconShape,
                         onLaunch = onLaunchFrom, onActions = onActions, onWidget = onWidget,
                         onFolder = onFolder, onEmptyWidget = onEmptyWidget, onRefresh = onRefresh,
                         modifier = Modifier,
@@ -1326,6 +1336,7 @@ private fun ExpandedWorkspace(
                         HomePagePane(
                             page, state, previewSlots, previewLeadingSlots, previewWidgetPlacements, appsById, geometry, contentHeight, bottomSpace,
                             widgets, drag, target, insertionTarget, showLargeWidget = page > 0,
+                            iconShape = iconShape,
                             onLaunch = onLaunchFrom, onActions = onActions, onWidget = onWidget,
                             onFolder = onFolder,
                             onEmptyWidget = onEmptyWidget,
@@ -1366,6 +1377,7 @@ private fun HomePagePane(
     target: DropTarget?,
     insertionTarget: DropTarget?,
     showLargeWidget: Boolean,
+    iconShape: Shape = RoundedCornerShape(14.dp),
     onLaunch: (AppEntry, android.graphics.Rect?) -> Unit,
     onActions: (AppEntry) -> Unit,
     onWidget: (Int) -> Unit,
@@ -1414,7 +1426,7 @@ private fun HomePagePane(
             .verticalScroll(homeScroll).padding(top = geometry.contentTop.dp, bottom = 8.dp)) {
             SharedHomeGrid(page, state.homeSlots, state.leadingSlots, previewSlots, previewLeadingSlots, previewWidgetPlacements,
                 appsById, geometry, state.labels, widgets, drag, target,
-                folders = state.folders, onLaunch = onLaunch, onActions = onActions, onWidget = onWidget,
+                folders = state.folders, iconShape = iconShape, onLaunch = onLaunch, onActions = onActions, onWidget = onWidget,
                 onFolder = onFolder, onEmptyWidget = onEmptyWidget)
             if (state.loading) LinearProgressIndicator(Modifier.fillMaxWidth().padding(16.dp))
             if (state.error != null) Text(state.error, color = Color.White,
@@ -1448,6 +1460,7 @@ private fun SharedHomeGrid(
     drag: HomeDragState,
     target: DropTarget?,
     folders: List<FolderEntry>,
+    iconShape: Shape = RoundedCornerShape(14.dp),
     onLaunch: (AppEntry, android.graphics.Rect?) -> Unit,
     onActions: (AppEntry) -> Unit,
     onWidget: (Int) -> Unit,
@@ -1535,7 +1548,7 @@ private fun SharedHomeGrid(
                 )
                 Box(Modifier.offset { animatedOffset }.width(cellWidth).height(rowHeight.dp)
                     .alpha(opacity).testTag("home-app-$id"), contentAlignment = Alignment.TopCenter) {
-                    if (visible) AppTile(app, iconSize, labels,
+                    if (visible) AppTile(app, iconSize, labels, shape = iconShape,
                         onClick = { onLaunch(app, it) }, onLongClick = { onActions(app) })
                 }
             }
@@ -1550,7 +1563,7 @@ private fun SharedHomeGrid(
             val y = rowTop(row).dp
             FolderTile(folder, appsById, iconSize, labels, drag, page,
                 Modifier.offset(x = x, y = y).width(cellWidth).height(rowHeight.dp)
-                    .testTag("home-folder-${folder.id}"), onClick = { onFolder(folder.id) })
+                    .testTag("home-folder-${folder.id}"), iconShape = iconShape, onClick = { onFolder(folder.id) })
         }
         pageWidgets.forEach { placement ->
             key("widget-${placement.slot}") {
@@ -1584,6 +1597,7 @@ private fun DockAppColumn(
     iconSize: Float,
     drag: HomeDragState,
     target: DropTarget?,
+    iconShape: Shape = RoundedCornerShape(11.dp),
     onLaunch: (AppEntry, android.graphics.Rect?) -> Unit,
     onChoose: (Int) -> Unit,
 ) {
@@ -1649,10 +1663,10 @@ private fun DockAppColumn(
                 )
                 Box(Modifier.offset { animatedOffset }.fillMaxWidth().height(rowHeight.dp).alpha(opacity)
                     .testTag("dock-app-$id"), contentAlignment = Alignment.Center) {
-                    Image(app.icon.asImageBitmap(), null, Modifier.size(iconSize.dp).testTag("dock-icon-$id")
+                    Image(app.imageBitmap, null, Modifier.size(iconSize.dp).testTag("dock-icon-$id")
                         .onGloballyPositioned { if (savedIndex >= 0) launchBounds[savedIndex].set(it.boundsInWindow().toAndroidBounds()) }
                         .graphicsLayer { scaleX = slotScales[renderIndex]; scaleY = slotScales[renderIndex] }
-                        .clip(RoundedCornerShape(11.dp)))
+                        .clip(iconShape))
                 }
             }
         }
@@ -1664,7 +1678,7 @@ private fun <T> List<T>.slicePage(range: IntRange): List<T> =
 
 @Composable
 private fun FolderTile(folder: FolderEntry, apps: Map<String, AppEntry>, size: Float, labels: Boolean,
-    drag: HomeDragState, page: Int, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    drag: HomeDragState, page: Int, modifier: Modifier = Modifier, iconShape: Shape = RoundedCornerShape(6.dp), onClick: () -> Unit) {
     Column(modifier.clickable(onClick = onClick).semantics(mergeDescendants = true) {
         contentDescription = "Folder ${folder.title}, ${folder.appIds.size} apps"
     }, horizontalAlignment = Alignment.CenterHorizontally) {
@@ -1674,9 +1688,9 @@ private fun FolderTile(folder: FolderEntry, apps: Map<String, AppEntry>, size: F
             .testTag("folder-drop-${folder.id}")) {
             folder.appIds.take(4).forEachIndexed { index, id ->
                 apps[id]?.let { app ->
-                    Image(app.icon.asImageBitmap(), null, Modifier.align(when (index) {
+                    Image(app.imageBitmap, null, Modifier.align(when (index) {
                         0 -> Alignment.TopStart; 1 -> Alignment.TopEnd; 2 -> Alignment.BottomStart; else -> Alignment.BottomEnd
-                    }).padding(5.dp).size((size * .38f).dp).clip(RoundedCornerShape(6.dp)))
+                    }).padding(5.dp).size((size * .38f).dp).clip(iconShape))
                 }
             }
         }
@@ -1686,7 +1700,7 @@ private fun FolderTile(folder: FolderEntry, apps: Map<String, AppEntry>, size: F
 }
 
 @Composable
-private fun AppTile(app: AppEntry, size: Float, labels: Boolean, modifier: Modifier = Modifier, onClick: (android.graphics.Rect) -> Unit, onLongClick: () -> Unit) {
+private fun AppTile(app: AppEntry, size: Float, labels: Boolean, shape: Shape = RoundedCornerShape((size * .24f).dp), modifier: Modifier = Modifier, onClick: (android.graphics.Rect) -> Unit, onLongClick: () -> Unit) {
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
     val scale by animateFloatAsState(if (pressed) .92f else 1f, label = "app press")
@@ -1697,8 +1711,8 @@ private fun AppTile(app: AppEntry, size: Float, labels: Boolean, modifier: Modif
             role = Role.Button, onClick = { onClick(bounds) })
         .semantics { onLongClick("App options") { onLongClick(); true } }.padding(horizontal = 2.dp),
         horizontalAlignment = Alignment.CenterHorizontally) {
-        Image(app.icon.asImageBitmap(), null, Modifier.size(iconSize).onGloballyPositioned { bounds.set(it.boundsInWindow().toAndroidBounds()) }
-            .graphicsLayer { scaleX = scale; scaleY = scale }.clip(RoundedCornerShape((size * .24f).dp)))
+        Image(app.imageBitmap, null, Modifier.size(iconSize).onGloballyPositioned { bounds.set(it.boundsInWindow().toAndroidBounds()) }
+            .graphicsLayer { scaleX = scale; scaleY = scale }.clip(shape))
         if (labels) Text(app.label, color = Color.White, fontSize = 11.sp, lineHeight = 14.sp, maxLines = 1,
             overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center,
             style = TextStyle(shadow = Shadow(Color.Black.copy(alpha = .55f), Offset(0f, 1f), 3f)), modifier = Modifier.padding(top = 4.dp))
@@ -1856,7 +1870,7 @@ private fun AppPicker(apps: List<AppEntry>, dockSlot: Int?, onSelect: (AppEntry)
                     .combinedClickable(enabled = enabled, onClick = { onSelect(app) }, onLongClick = { onLongClick(app) })
                     .alpha(if (enabled) 1f else .45f)
                     .padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Image(app.icon.asImageBitmap(), null, Modifier.size(44.dp).clip(RoundedCornerShape(12.dp)))
+                    Image(app.imageBitmap, null, Modifier.size(44.dp).clip(RoundedCornerShape(12.dp)))
                     Text(app.label, Modifier.padding(start = 16.dp).weight(1f), maxLines = 2)
                     if (dockSlot != null && enabled) Icon(Icons.Rounded.Add, "Choose ${app.label}")
                 }

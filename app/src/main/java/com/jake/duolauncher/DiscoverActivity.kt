@@ -127,6 +127,7 @@ internal object DiscoverSession {
 }
 
 private fun ComponentActivity.configureDiscoverWindow(vertical: Boolean) {
+    window.enableHighRefreshRate()
     // The page coordinates its own motion. Also clear the window-level style that Google
     // inherits from LayoutParams; NO_ANIMATION alone only governs the activity handoff.
     window.setWindowAnimations(0)

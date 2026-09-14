@@ -22,6 +22,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.dp
 
 @Composable
@@ -32,12 +35,24 @@ internal fun FolderPanel(
     onMoveOut: (String, DropTarget) -> Unit,
 ) {
     var title by rememberSaveable(folder.id) { mutableStateOf(folder.title) }
+    var entered by remember { mutableStateOf(false) }
+    LaunchedEffect(folder.id) { entered = true }
+    val enterAlpha by animateFloatAsState(
+        targetValue = if (entered) 1f else 0f,
+        animationSpec = spring(dampingRatio = 0.92f, stiffness = 650f),
+        label = "folderAlpha"
+    )
+    val enterScale by animateFloatAsState(
+        targetValue = if (entered) 1f else 0.88f,
+        animationSpec = spring(dampingRatio = 0.88f, stiffness = 600f),
+        label = "folderScale"
+    )
     BackHandler { onDismiss() }
     DisposableEffect(drag, folder.id) {
         drag.activeSourceScope = folder.id
         onDispose { if (drag.activeSourceScope == folder.id) drag.activeSourceScope = null }
     }
-    Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .28f))
+    Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .28f * enterAlpha))
         .clickable(
             interactionSource = remember { MutableInteractionSource() },
             indication = null,
@@ -47,6 +62,11 @@ internal fun FolderPanel(
         .imePadding().testTag("folder-panel"),
         contentAlignment = Alignment.Center) {
         Surface(Modifier.fillMaxWidth(.9f).fillMaxHeight(.82f).heightIn(min = 260.dp, max = 620.dp)
+            .graphicsLayer {
+                scaleX = enterScale
+                scaleY = enterScale
+                alpha = enterAlpha
+            }
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
@@ -87,7 +107,7 @@ private fun FolderChild(
             Column(Modifier.fillMaxWidth().dropRegion(drag, DropTarget.Library(app.id), app.id, page,
                 folderId = folderId, scope = folderId).clickable(enabled = app.available) { onLaunch(app, null) }
                 .padding(horizontal = 6.dp, vertical = 10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                Image(app.icon.asImageBitmap(), null, Modifier.size(46.dp).clip(RoundedCornerShape(12.dp)))
+                Image(app.imageBitmap, null, Modifier.size(46.dp).clip(RoundedCornerShape(12.dp)))
                 Text(app.label, Modifier.padding(top = 6.dp), maxLines = 2, overflow = TextOverflow.Ellipsis,
                     style = MaterialTheme.typography.labelMedium)
                 if (app.isWork || !app.available) Text(if (app.available) app.profileLabel else "${app.profileLabel} unavailable",

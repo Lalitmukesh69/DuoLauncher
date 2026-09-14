@@ -22,7 +22,12 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 
-internal enum class CustomizationPage { OVERVIEW, WALLPAPER, HOME, GESTURES, BACKUP, HELP }
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+
+internal enum class CustomizationPage { OVERVIEW, WALLPAPER, ICONS, HOME, GESTURES, BACKUP, HELP }
 
 @Composable
 internal fun CustomizationSheet(state: LauncherState, initiallyWide: Boolean, model: LauncherModel,
@@ -40,6 +45,7 @@ internal fun CustomizationSheet(state: LauncherState, initiallyWide: Boolean, mo
     val title = when (page) {
         CustomizationPage.OVERVIEW -> "Make it yours"
         CustomizationPage.WALLPAPER -> "Wallpaper & appearance"
+        CustomizationPage.ICONS -> "Icons & shapes"
         CustomizationPage.HOME -> "Home layout"
         CustomizationPage.GESTURES -> "Gestures & search"
         CustomizationPage.BACKUP -> "Backup"
@@ -66,6 +72,8 @@ internal fun CustomizationSheet(state: LauncherState, initiallyWide: Boolean, mo
                     CustomizationDestination(Icons.Rounded.Wallpaper, "Wallpaper & appearance",
                         if (backgrounds.previewPending) "Photo ready to review" else "Background, colors, and light",
                         "customization-wallpaper") { onPage(CustomizationPage.WALLPAPER) }
+                    CustomizationDestination(Icons.Rounded.AutoAwesome, "Icons & shapes",
+                        "Icon packs, shapes, and styling", "customization-icons") { onPage(CustomizationPage.ICONS) }
                     CustomizationDestination(Icons.Rounded.GridView, "Home layout",
                         "Icons, spacing, dock, and widgets", "customization-home") { onPage(CustomizationPage.HOME) }
                     CustomizationDestination(Icons.Rounded.Search, "Gestures & search",
@@ -111,6 +119,7 @@ internal fun CustomizationSheet(state: LauncherState, initiallyWide: Boolean, mo
                     HorizontalDivider(Modifier.padding(vertical = 6.dp))
                     AppearanceSettings(appearance, onAppearanceMode, onAppearanceManual, onAppearanceDeviceLocation, onAppearanceClear)
                 }
+                CustomizationPage.ICONS -> IconSettingsPage(model, state)
                 CustomizationPage.HOME -> HomeLayoutSettings(state, wide, { wide = it }, model, homePage,
                     onEditPins, onWidget, onAddWidget, onRemoveWidget)
                 CustomizationPage.GESTURES -> {
@@ -219,14 +228,14 @@ private fun HelpSection(icon: ImageVector, title: String, detail: String) {
                 verticalArrangement = Arrangement.spacedBy(unit(10f))) {
                 Box(Modifier.fillMaxWidth().height(unit(42f)).background(MaterialTheme.colorScheme.surface.copy(alpha = .38f), RoundedCornerShape(unit(12f))))
                 homeIcons.chunked(4).forEach { row -> Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    row.forEach { app -> Image(app.icon.asImageBitmap(), null, Modifier.size(unit(24f)).clip(RoundedCornerShape(unit(7f)))) }
+                    row.forEach { app -> Image(app.imageBitmap, null, Modifier.size(unit(24f)).clip(RoundedCornerShape(unit(7f)))) }
                 } }
             }
             Column(Modifier.align(Alignment.CenterEnd).padding(end = unit(10f)).width(unit(36f))
                 .background(MaterialTheme.colorScheme.surface.copy(alpha = .42f), RoundedCornerShape(unit(18f)))
                 .padding(vertical = unit(8f)), horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(unit(8f))) {
-                dockIcons.forEach { app -> Image(app.icon.asImageBitmap(), null, Modifier.size(unit(22f)).clip(RoundedCornerShape(unit(7f)))) }
+                dockIcons.forEach { app -> Image(app.imageBitmap, null, Modifier.size(unit(22f)).clip(RoundedCornerShape(unit(7f)))) }
             }
         }
     }
@@ -269,4 +278,243 @@ private fun HelpSection(icon: ImageVector, title: String, detail: String) {
     range: ClosedFloatingPointRange<Float>, onChange: (Float) -> Unit) {
     Column { Row { Text(label, Modifier.weight(1f)); Text(valueLabel, color = MaterialTheme.colorScheme.primary) }
         Slider(value, onChange, valueRange = range, modifier = Modifier.semantics { contentDescription = label }) }
+}
+
+@Composable
+private fun IconSettingsPage(
+    model: LauncherModel,
+    state: LauncherState,
+) {
+    val context = LocalContext.current
+    val iconPrefs by model.iconPreferences.state.collectAsStateWithLifecycle()
+    val installedPacks = remember { IconPackManager.getInstalledIconPacks(context) }
+    val currentPackPackage = iconPrefs.iconPackPackage
+    val currentShape = iconPrefs.iconShape
+
+    // Live preview card with glassmorphism
+    Surface(
+        modifier = Modifier.fillMaxWidth().testTag("icon-settings-preview"),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+        shape = RoundedCornerShape(20.dp),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+    ) {
+        Column(Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(
+                "Live Preview",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.primary
+            )
+            Spacer(Modifier.height(12.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceEvenly,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                state.apps.take(4).forEach { app ->
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Image(
+                            bitmap = app.imageBitmap,
+                            contentDescription = app.label,
+                            modifier = Modifier
+                                .size(48.dp)
+                                .clip(currentShape.composeShape())
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            text = app.label,
+                            style = MaterialTheme.typography.labelSmall,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.widthIn(max = 64.dp)
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    HorizontalDivider(Modifier.padding(vertical = 4.dp))
+
+    // Icon Shape Selector
+    Text("Icon Shape", style = MaterialTheme.typography.titleMedium)
+    Text(
+        "Choose an icon shape mask for your Home screens and app drawer.",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant
+    )
+    Spacer(Modifier.height(4.dp))
+
+    val shapes = IconShape.entries
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        shapes.chunked(2).forEach { rowShapes ->
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                rowShapes.forEach { shape ->
+                    val selected = shape == currentShape
+                    Surface(
+                        onClick = { model.setIconShape(shape) },
+                        modifier = Modifier
+                            .weight(1f)
+                            .heightIn(min = 54.dp)
+                            .testTag("shape-option-${shape.name.lowercase()}"),
+                        shape = RoundedCornerShape(16.dp),
+                        color = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                        border = BorderStroke(
+                            if (selected) 2.dp else 1.dp,
+                            if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
+                        )
+                    ) {
+                        Row(
+                            Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(28.dp)
+                                    .clip(shape.composeShape())
+                                    .background(if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+                            )
+                            Spacer(Modifier.width(10.dp))
+                            Text(
+                                shape.label,
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = if (selected) androidx.compose.ui.text.font.FontWeight.SemiBold else androidx.compose.ui.text.font.FontWeight.Normal,
+                                modifier = Modifier.weight(1f)
+                            )
+                            if (selected) {
+                                Icon(
+                                    Icons.Rounded.Check,
+                                    contentDescription = "Selected",
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    HorizontalDivider(Modifier.padding(vertical = 4.dp))
+
+    // Icon Pack Selector
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text("Icon Pack", style = MaterialTheme.typography.titleMedium)
+            Text(
+                "Apply themed app artwork from third-party icon packs.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+    Spacer(Modifier.height(4.dp))
+
+    // Default system pack option
+    val isSystemDefault = currentPackPackage == null
+    Surface(
+        onClick = { model.setIconPack(null) },
+        modifier = Modifier.fillMaxWidth().heightIn(min = 54.dp).testTag("icon-pack-default"),
+        shape = RoundedCornerShape(16.dp),
+        color = if (isSystemDefault) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+        border = BorderStroke(
+            if (isSystemDefault) 2.dp else 1.dp,
+            if (isSystemDefault) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
+        )
+    ) {
+        Row(
+            Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                Modifier.size(36.dp).clip(currentShape.composeShape())
+                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(Icons.Rounded.Apps, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+            }
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    "System Default",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = if (isSystemDefault) androidx.compose.ui.text.font.FontWeight.SemiBold else androidx.compose.ui.text.font.FontWeight.Normal
+                )
+                Text(
+                    "Adaptive system app icons",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            RadioButton(
+                selected = isSystemDefault,
+                onClick = { model.setIconPack(null) }
+            )
+        }
+    }
+
+    // Installed packs list
+    installedPacks.forEach { pack ->
+        val isSelected = currentPackPackage == pack.packageName
+        Surface(
+            onClick = { model.setIconPack(pack.packageName) },
+            modifier = Modifier.fillMaxWidth().heightIn(min = 54.dp).testTag("icon-pack-${pack.packageName}"),
+            shape = RoundedCornerShape(16.dp),
+            color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+            border = BorderStroke(
+                if (isSelected) 2.dp else 1.dp,
+                if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
+            )
+        ) {
+            Row(
+                Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (pack.icon != null) {
+                    Image(
+                        bitmap = pack.icon.asImageBitmap(),
+                        contentDescription = null,
+                        modifier = Modifier.size(36.dp).clip(currentShape.composeShape())
+                    )
+                } else {
+                    Box(
+                        Modifier.size(36.dp).clip(currentShape.composeShape())
+                            .background(MaterialTheme.colorScheme.secondaryContainer),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(Icons.Rounded.Palette, null, tint = MaterialTheme.colorScheme.onSecondaryContainer, modifier = Modifier.size(20.dp))
+                    }
+                }
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        pack.label,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = if (isSelected) androidx.compose.ui.text.font.FontWeight.SemiBold else androidx.compose.ui.text.font.FontWeight.Normal
+                    )
+                    Text(
+                        pack.packageName,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                RadioButton(
+                    selected = isSelected,
+                    onClick = { model.setIconPack(pack.packageName) }
+                )
+            }
+        }
+    }
+
+    // "Get more icon packs" button
+    OutlinedButton(
+        onClick = { IconPackManager.openPlayStoreForIconPacks(context) },
+        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("icon-packs-play-store")
+    ) {
+        Icon(Icons.Rounded.Search, null, modifier = Modifier.size(18.dp))
+        Spacer(Modifier.width(8.dp))
+        Text("Get more icon packs from Play Store")
+    }
 }
