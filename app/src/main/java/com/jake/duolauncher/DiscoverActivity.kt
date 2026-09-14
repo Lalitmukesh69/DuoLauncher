@@ -24,9 +24,11 @@ import androidx.activity.viewModels
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -396,8 +398,15 @@ private fun DiscoverDock(state: LauncherState, status: DeviceStatus, fullSize: S
                         if (maxHeight < 500.dp) 0f else 23f).coerceAtLeast(0f)
                 },
                 compact = maxHeight < 500.dp, iconSize = dockIconSize(geometry.iconSize).dp)
+            val visibleRecents = if (!state.showRecentApps) emptyList()
+                else state.recentApps.filter { it !in state.dock && apps.containsKey(it) }.take(4)
+            val maxDockHeight = (maxHeight.value - geometry.dockTop - 120f).coerceAtLeast(geometry.dockHeight)
+            val desiredDockHeight = geometry.dockHeight + if (visibleRecents.isNotEmpty()) {
+                14f + (geometry.dockRowHeight * visibleRecents.size)
+            } else 0f
+            val dockHeight = minOf(desiredDockHeight, maxDockHeight)
             Surface(Modifier.align(Alignment.TopEnd).padding(end = 12.dp).offset(y = geometry.dockTop.dp)
-                .width(preset.dockWidth.dp).height(geometry.dockHeight.dp).testTag("discover-dock"),
+                .width(preset.dockWidth.dp).height(dockHeight.dp).testTag("discover-dock"),
                 shape = RoundedCornerShape(30.dp), color = Glass.copy(alpha = .32f), border = BorderStroke(1.dp, Color.White.copy(alpha = .3f))) {
                 Column(Modifier.padding(vertical = 8.dp).verticalScroll(rememberScrollState()), horizontalAlignment = Alignment.CenterHorizontally) {
                     state.dock.forEachIndexed { index, id ->
@@ -408,6 +417,45 @@ private fun DiscoverDock(state: LauncherState, status: DeviceStatus, fullSize: S
                             if (app != null) Image(app.icon.asImageBitmap(), null,
                                 Modifier.size(dockIconSize(geometry.iconSize).dp).clip(RoundedCornerShape(11.dp)))
                             else Icon(Icons.Rounded.Home, null, tint = Color.White)
+                        }
+                    }
+                    if (visibleRecents.isNotEmpty()) {
+                        Box(
+                            Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 6.dp)
+                                .testTag("discover-dock-recents-divider-container"),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Box(
+                                Modifier
+                                    .width(26.dp)
+                                    .height(2.dp)
+                                    .background(Color.White.copy(alpha = .35f), CircleShape)
+                                    .testTag("discover-dock-recents-divider")
+                            )
+                        }
+                        visibleRecents.forEach { recentId ->
+                            val app = apps[recentId]
+                            if (app != null) {
+                                Box(
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .height(geometry.dockRowHeight.dp)
+                                        .testTag("discover-dock-recent-slot-$recentId")
+                                        .semantics { contentDescription = "${app.label} (Recent)" }
+                                        .clickable(role = Role.Button) { onLaunch(app) },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Image(
+                                        app.icon.asImageBitmap(),
+                                        null,
+                                        Modifier
+                                            .size(dockIconSize(geometry.iconSize).dp)
+                                            .clip(RoundedCornerShape(11.dp))
+                                    )
+                                }
+                            }
                         }
                     }
                 }

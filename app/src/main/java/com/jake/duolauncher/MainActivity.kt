@@ -107,7 +107,8 @@ class MainActivity : ComponentActivity() {
                     onAppearanceClear = { cancelAppearanceLocation(); appearance.clearLocation(systemDark()) },
                     showFirstRun = showFirstRun.value,
                     onFinishFirstRun = ::finishFirstRun,
-                    onShadeSetup = ::showShadeSetup)
+                    onShadeSetup = ::showShadeSetup,
+                    onLockScreen = ::lockScreen)
             }
         }
         FoldRenderExperiment.attach(this)
@@ -168,12 +169,29 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun showShadeSetup() {
+    internal fun lockScreen() {
+        when (SystemShadeAccessibilityService.lock(this)) {
+            ShadeOpenResult.OPENED -> Unit
+            ShadeOpenResult.SERVICE_DISABLED -> showShadeSetup(forLock = true)
+            ShadeOpenResult.SERVICE_STARTING -> Toast.makeText(this,
+                "Lock gesture is starting. Double tap again.", Toast.LENGTH_SHORT).show()
+            ShadeOpenResult.ACTION_REJECTED -> Toast.makeText(this,
+                "Android couldn’t lock the screen.", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun showShadeSetup(forLock: Boolean = false) {
         if (shadeSetupDialog?.isShowing == true) return
         ownShadeSetupExternally()
+        val title = if (forLock) "Turn on double-tap to lock" else "Turn on shade gestures"
+        val message = if (forLock) {
+            "Android requires you to enable Duo Launcher in Accessibility settings to lock the screen. This service only locks the screen or opens system panels; it doesn’t read screen content or watch other apps."
+        } else {
+            "Android requires you to enable Duo Launcher shade gestures in Accessibility settings. This service only opens Notifications or Quick Settings; it doesn’t read screen content or watch other apps."
+        }
         shadeSetupDialog = android.app.AlertDialog.Builder(this)
-            .setTitle("Turn on shade gestures")
-            .setMessage("Android requires you to enable Duo Launcher shade gestures in Accessibility settings. This service only opens Notifications or Quick Settings; it doesn’t read screen content or watch other apps.")
+            .setTitle(title)
+            .setMessage(message)
             .setNegativeButton("Not now", null)
             .setPositiveButton("Open settings") { _, _ ->
                 try {
@@ -237,6 +255,7 @@ class MainActivity : ComponentActivity() {
             val user = getSystemService(UserManager::class.java).getUserForSerialNumber(app.userSerial)
                 ?: throw IllegalStateException("Profile is unavailable")
             getSystemService(LauncherApps::class.java).startMainActivity(app.component, user, screenBounds(bounds), launchOptions(bounds))
+            model.recordAppLaunch(app.id)
         } catch (_: Exception) { Toast.makeText(this, "${app.label} is unavailable.", Toast.LENGTH_SHORT).show(); model.refresh() }
     }
 
