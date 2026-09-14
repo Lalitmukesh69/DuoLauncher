@@ -138,6 +138,7 @@ fun LauncherScreen(
     showFirstRun: Boolean = false,
     onFinishFirstRun: () -> Unit = {},
     onShadeSetup: () -> Unit = {},
+    onLockScreen: (() -> Unit)? = null,
 ) {
     var sheet by rememberSaveable { mutableStateOf("") }
     var dockSlot by rememberSaveable { mutableIntStateOf(0) }
@@ -495,6 +496,8 @@ fun LauncherScreen(
                 launcherActivity.backups.preview == null && !launcherActivity.backups.pickerPending &&
                 !launcherActivity.backgrounds.pickerPending && widgets.setupStatus == null &&
                 widgets.reconfigureWidgetId == null
+            val lockAction = onLockScreen ?: launcherActivity::lockScreen
+            val onDoubleTapLock: (() -> Unit)? = if (pagerInputEnabled && state.doubleTapToLock) lockAction else null
             Box(Modifier.fillMaxSize().onGloballyPositioned {
                 gestureOriginInRoot = it.boundsInRoot().topLeft
                 gestureOriginInWindow = it.boundsInWindow().topLeft
@@ -559,6 +562,7 @@ fun LauncherScreen(
                         onEmptyWidget = { emptyCellIndex = it },
                         onRefresh = model::refresh,
                         iconShape = composeShape,
+                        onDoubleTap = onDoubleTapLock,
                     )
                 }
             } else {
@@ -578,7 +582,15 @@ fun LauncherScreen(
                             onActions = { selectedId = it.id }, modifier = Modifier.fillMaxSize().padding(start = 16.dp, top = 16.dp, bottom = bottomSpace).testTag("library-page"),
                             drag = drag, page = visibleHomePages, onLaunchFrom = onLaunchFrom, onTurnOnWork = { model.turnOnWork(it) })
                     } else {
-                        Row(Modifier.fillMaxSize().testTag("home-surface")) {
+                        Row(Modifier.fillMaxSize().testTag("home-surface")
+                            .then(if (onDoubleTapLock != null) {
+                                Modifier.pointerInput(drag.active, onDoubleTapLock) {
+                                    detectTapGestures(
+                                        onDoubleTap = { if (!drag.active) onDoubleTapLock() }
+                                    )
+                                }
+                            } else Modifier)
+                        ) {
                             HomePagePane(page, state, previewLayout.slots, previewLayout.leadingSlots, previewLayout.widgetPlacements, appsById, geometry, contentHeight,
                                 bottomSpace, widgets, drag, target, insertionTarget, showLargeWidget = false,
                                 iconShape = composeShape,
@@ -586,7 +598,8 @@ fun LauncherScreen(
                                 onWidget = { widgetSlot = it; sheet = "widgetActions" },
                                 onFolder = { openFolderId = it },
                                 onEmptyWidget = { emptyCellIndex = it },
-                                onRefresh = model::refresh)
+                                onRefresh = model::refresh,
+                                onDoubleTap = onDoubleTapLock)
                         }
                     }
                 }
@@ -599,18 +612,87 @@ fun LauncherScreen(
                             if (contentHeight < 500.dp) 0f else 23f).coerceAtLeast(0f)
                     },
                 compact = contentHeight < 500.dp, iconSize = dockIconSize(geometry.iconSize).dp)
+            val visibleRecents = remember(state.recentApps, state.dock, appsById, state.showRecentApps) {
+                if (!state.showRecentApps) emptyList()
+                else state.recentApps.filter { it !in state.dock && appsById.containsKey(it) }.take(4)
+            }
+            val bottomReserveDp = if (inLibrary) 12.dp else 124.dp
+            val maxDockHeight = (contentHeight - geometry.dockTop.dp - bottomReserveDp).coerceAtLeast(geometry.dockHeight.dp)
+            val desiredDockHeight = geometry.dockHeight.dp + if (visibleRecents.isNotEmpty()) {
+                14.dp + (geometry.dockRowHeight * visibleRecents.size).dp
+            } else 0.dp
+            val dockHeight = minOf(desiredDockHeight, maxDockHeight)
             Surface(Modifier.align(Alignment.TopEnd).padding(end = 12.dp).offset(y = geometry.dockTop.dp)
-                .width(preset.dockWidth.dp).height(geometry.dockHeight.dp).graphicsLayer {
+                .width(preset.dockWidth.dp).height(dockHeight).graphicsLayer {
                     // Composite the stationary dock independently of the shared pager layer.
                     compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.Offscreen
                 }.testTag("dock"),
                 shape = RoundedCornerShape(30.dp), color = Glass.copy(alpha = .32f),
                 border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = .3f))) {
-                Column(Modifier.padding(vertical = 8.dp).verticalScroll(dockScroll)) {
+                Column(Modifier.padding(vertical = 8.dp).verticalScroll(dockScroll), horizontalAlignment = Alignment.CenterHorizontally) {
                     DockAppColumn(state.dock, previewLayout.dock, appsById, geometry.dockRowHeight,
                         dockIconSize(geometry.iconSize), drag, insertionTarget,
                         iconShape = composeShape,
                         onLaunch = onLaunchFrom, onChoose = { dockSlot = it; sheet = "dock" })
+                    if (visibleRecents.isNotEmpty()) {
+                        Box(
+                            Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 6.dp)
+                                .testTag("dock-recents-divider-container"),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Box(
+                                Modifier
+                                    .width(26.dp)
+                                    .height(2.dp)
+                                    .background(Color.White.copy(alpha = .35f), CircleShape)
+                                    .testTag("dock-recents-divider")
+                            )
+                        }
+                        visibleRecents.forEach { recentId ->
+                            val app = appsById[recentId]
+                            if (app != null) {
+                                key(recentId) {
+                                    val launchBounds = remember { android.graphics.Rect() }
+                                    val interaction = remember { MutableInteractionSource() }
+                                    val pressed by interaction.collectIsPressedAsState()
+                                    val scale by animateFloatAsState(if (pressed) .92f else 1f, label = "dock recent press $recentId")
+                                    val target = DropTarget.Library(app.id)
+                                    Box(
+                                        Modifier
+                                            .fillMaxWidth()
+                                            .height(geometry.dockRowHeight.dp)
+                                            .testTag("dock-recent-slot-$recentId")
+                                            .dropRegion(drag, target, app.id)
+                                            .semantics(mergeDescendants = true) {
+                                                contentDescription = "${app.label} (Recent)"
+                                            }
+                                            .combinedClickable(
+                                                interactionSource = interaction,
+                                                indication = LocalIndication.current,
+                                                role = Role.Button,
+                                                onClick = { onLaunchFrom(app, launchBounds) },
+                                                onLongClick = { selectedId = app.id }
+                                            )
+                                            .semantics { onLongClick("App options") { selectedId = app.id; true } },
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Image(
+                                            app.imageBitmap,
+                                            null,
+                                            Modifier
+                                                .size(dockIconSize(geometry.iconSize).dp)
+                                                .testTag("dock-recent-icon-$recentId")
+                                                .onGloballyPositioned { launchBounds.set(it.boundsInWindow().toAndroidBounds()) }
+                                                .graphicsLayer { scaleX = scale; scaleY = scale }
+                                                .clip(composeShape)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
             Column(Modifier.align(Alignment.BottomStart).width(pagerWidth).padding(start = 16.dp, bottom = 6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -1252,6 +1334,7 @@ private fun ExpandedWorkspace(
     onEmptyWidget: (Int) -> Unit,
     onRefresh: () -> Unit,
     iconShape: Shape = RoundedCornerShape(14.dp),
+    onDoubleTap: (() -> Unit)? = null,
 ) {
     val density = LocalDensity.current
     val viewportWidth = motion.pageWidth
@@ -1303,7 +1386,15 @@ private fun ExpandedWorkspace(
         }
     }
 
-    Box(Modifier.fillMaxSize().clipToBounds().testTag("expanded-workspace")) {
+    Box(Modifier.fillMaxSize().clipToBounds().testTag("expanded-workspace")
+        .then(if (onDoubleTap != null) {
+            Modifier.pointerInput(drag.active, onDoubleTap) {
+                detectTapGestures(
+                    onDoubleTap = { if (!drag.active) onDoubleTap() }
+                )
+            }
+        } else Modifier)
+    ) {
         if (showDiscover) {
             key("discover-pane") {
                 Box(Modifier.place(-viewportWidth).fillMaxSize()) {
@@ -1323,6 +1414,7 @@ private fun ExpandedWorkspace(
                         onLaunch = onLaunchFrom, onActions = onActions, onWidget = onWidget,
                         onFolder = onFolder, onEmptyWidget = onEmptyWidget, onRefresh = onRefresh,
                         modifier = Modifier,
+                        onDoubleTap = onDoubleTap,
                     )
                 }
             }
@@ -1341,6 +1433,7 @@ private fun ExpandedWorkspace(
                             onFolder = onFolder,
                             onEmptyWidget = onEmptyWidget,
                             onRefresh = onRefresh,
+                            onDoubleTap = onDoubleTap,
                         )
                     }
                 }
@@ -1385,6 +1478,7 @@ private fun HomePagePane(
     onEmptyWidget: (Int) -> Unit = {},
     onRefresh: () -> Unit,
     modifier: Modifier = Modifier,
+    onDoubleTap: (() -> Unit)? = null,
 ) {
     val homeScroll = rememberScrollState()
     var paneBounds by remember { mutableStateOf(androidx.compose.ui.geometry.Rect.Zero) }
@@ -1413,21 +1507,34 @@ private fun HomePagePane(
                 !drag.active
             }
         }
+        .then(if (onDoubleTap != null) {
+            Modifier.pointerInput(drag.active, onDoubleTap) {
+                detectTapGestures(
+                    onDoubleTap = { if (!drag.active) onDoubleTap() },
+                    onLongPress = { if (!drag.active) onEmptyWidget(backgroundTarget) }
+                )
+            }
+        } else Modifier)
         .onGloballyPositioned { paneBounds = it.boundsInRoot() }
         .width((geometry.gridWidth + 16f).dp)
         .height((contentHeight - bottomSpace).coerceAtLeast(0.dp))) {
         Box(Modifier.width(16.dp).fillMaxHeight().testTag("home-options-margin-$page")
-            .pointerInput(backgroundTarget, drag.active) {
-                detectTapGestures(onLongPress = {
-                    if (!drag.active) onEmptyWidget(backgroundTarget)
-                })
+            .pointerInput(backgroundTarget, drag.active, onDoubleTap) {
+                detectTapGestures(
+                    onDoubleTap = if (onDoubleTap != null) {
+                        { if (!drag.active) onDoubleTap() }
+                    } else null,
+                    onLongPress = {
+                        if (!drag.active) onEmptyWidget(backgroundTarget)
+                    }
+                )
             })
         Column(Modifier.offset(x = 16.dp).width(geometry.gridWidth.dp).fillMaxHeight()
             .verticalScroll(homeScroll).padding(top = geometry.contentTop.dp, bottom = 8.dp)) {
             SharedHomeGrid(page, state.homeSlots, state.leadingSlots, previewSlots, previewLeadingSlots, previewWidgetPlacements,
                 appsById, geometry, state.labels, widgets, drag, target,
                 folders = state.folders, iconShape = iconShape, onLaunch = onLaunch, onActions = onActions, onWidget = onWidget,
-                onFolder = onFolder, onEmptyWidget = onEmptyWidget)
+                onFolder = onFolder, onEmptyWidget = onEmptyWidget, onDoubleTap = onDoubleTap)
             if (state.loading) LinearProgressIndicator(Modifier.fillMaxWidth().padding(16.dp))
             if (state.error != null) Text(state.error, color = Color.White,
                 modifier = Modifier.clickable(onClick = onRefresh).padding(12.dp))
@@ -1466,6 +1573,7 @@ private fun SharedHomeGrid(
     onWidget: (Int) -> Unit,
     onFolder: (String) -> Unit,
     onEmptyWidget: (Int) -> Unit,
+    onDoubleTap: (() -> Unit)? = null,
 ) {
     val rowHeight = geometry.rowHeight
     val iconSize = geometry.iconSize
@@ -1515,7 +1623,10 @@ private fun SharedHomeGrid(
                 .width(cellWidth).height(cellHeight.dp).testTag("home-cell-$globalIndex")
                 .dropRegion(drag, cell, savedApp?.id ?: savedFolder?.id, page)
                 .combinedClickable(onClick = { savedFolder?.let { onFolder(it.id) } },
-                    onLongClick = { if (savedId == null && !drag.active) onEmptyWidget(globalIndex) })
+                    onLongClick = { if (savedId == null && !drag.active) onEmptyWidget(globalIndex) },
+                    onDoubleClick = if (onDoubleTap != null && savedId == null) {
+                        { if (!drag.active) onDoubleTap() }
+                    } else null)
                 .background(if (highlighted) Glass.copy(alpha = .25f) else Color.Transparent, RoundedCornerShape(16.dp))
                 .border(if (highlighted) 2.dp else 0.dp,
                     if (highlighted) Color.White.copy(alpha = .8f) else Color.Transparent, RoundedCornerShape(16.dp)),

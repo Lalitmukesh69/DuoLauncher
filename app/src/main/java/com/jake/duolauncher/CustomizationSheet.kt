@@ -126,6 +126,7 @@ internal fun CustomizationSheet(state: LauncherState, initiallyWide: Boolean, mo
                     SettingsSwitch("Show app names", state.labels, model::setLabels, "label-switch")
                     SettingsSwitch("Show status at upper right", state.verticalStatus, model::setVerticalStatus, "status-switch")
                     SettingsSwitch("Search button opens Google", state.googleSearch, model::setGoogleSearch, "google-search-switch")
+                    SettingsSwitch("Double-tap empty space to lock", state.doubleTapToLock, model::setDoubleTapToLock, "double-tap-to-lock-switch")
                     Text("All apps always keeps local app search.", style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text("Swipe sideways anywhere on Home to change pages. Swipe down for notifications or quick settings.",
@@ -178,6 +179,8 @@ private fun LauncherHelp(
     TextButton(onClick = onShadeSetup, Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("help-shade-setup")) {
         Text("Set up shade gestures")
     }
+    HelpSection(Icons.Rounded.Lock, "Double-tap to lock",
+        "Double-tap empty space on Home to lock the screen. If needed, Android asks you to turn on Duo Launcher in Accessibility settings.")
     HelpSection(Icons.Rounded.Explore, "Discover",
         "Swipe right from the first Home page. If Google can’t provide the feed, Duo keeps a Home return and recovery actions available.")
 }
@@ -254,6 +257,7 @@ private fun HelpSection(icon: ImageVector, title: String, detail: String) {
     CustomizationSlider("Space between rows", "${p.rowGap.toInt()} dp", p.rowGap, 0f..28f) { model.setPreset(wide, p.copy(rowGap = it)) }
     CustomizationSlider("Dock width", "${p.dockWidth.toInt()} dp", p.dockWidth, 56f..84f) { model.setPreset(wide, p.copy(dockWidth = it)) }
     SettingsSwitch("Align dock with app rows", p.dockAlignToGrid, { model.setPreset(wide, p.copy(dockAlignToGrid = it)) })
+    SettingsSwitch("Show recent apps in dock", state.showRecentApps, { model.setShowRecentApps(it) })
     if (!p.dockAlignToGrid) CustomizationSlider("Dock height on screen", "${(p.dockPosition * 100).toInt()}%", p.dockPosition, .25f.. .75f) { model.setPreset(wide, p.copy(dockPosition = it)) }
     TextButton(onClick = { model.setPreset(wide, LayoutPreset()) }, Modifier.fillMaxWidth()) { Text("Reset this layout") }
     HorizontalDivider(Modifier.padding(vertical = 6.dp))
